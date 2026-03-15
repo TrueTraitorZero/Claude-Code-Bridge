@@ -1,0 +1,1674 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>Claude Code Bridge</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/xterm@5.3.0/css/xterm.css">
+    <style>
+        :root {
+            --bg-primary: #1e1028;
+            --bg-header: #2a1435;
+            --bg-panel: #130a1a;
+            --bg-button: #3d1f4e;
+            --bg-button-hover: #542a6e;
+            --border: #3d1f4e;
+            --border-hover: #4a2560;
+            --accent: #a855f7;
+            --accent-dim: #7e3fbd;
+            --text: #e8e0f0;
+            --text-secondary: #c4b5d4;
+            --text-muted: #a090b8;
+            --text-dim: #7a6a90;
+            --text-dimmer: #5a4a6a;
+            --text-dimmest: #3d2f50;
+        }
+
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { background: var(--bg-primary); display: flex; flex-direction: column; height: 100vh; font-family: 'Segoe UI', system-ui, sans-serif; overflow: hidden; }
+
+        #header {
+            background: var(--bg-header); color: var(--text); padding: 6px 16px;
+            font-size: 13px; display: flex; justify-content: space-between; align-items: center;
+            border-bottom: 1px solid var(--border); flex-shrink: 0; z-index: 10;
+        }
+        #header .left { display: flex; align-items: center; gap: 12px; }
+        #header .title { font-weight: 600; font-family: monospace; }
+        .badge { font-size: 11px; padding: 2px 8px; border-radius: 10px; }
+        .badge.connected { background: #0a3; color: #fff; }
+        .badge.disconnected { background: #a33; color: #fff; }
+        .badge.connecting { background: #a80; color: #fff; }
+
+        .controls { display: flex; gap: 6px; align-items: center; }
+        .controls button, .controls .btn {
+            background: var(--bg-button); color: var(--text-secondary); border: 1px solid var(--border-hover);
+            padding: 4px 10px; border-radius: 4px; cursor: pointer; font-size: 12px;
+            display: flex; align-items: center; gap: 4px;
+        }
+        .controls button:hover, .controls .btn:hover { background: var(--bg-button-hover); color: #fff; }
+        .controls button.active { background: var(--accent-dim); color: #fff; border-color: var(--accent); }
+
+        #project-select {
+            background: var(--bg-button); color: var(--text-secondary); border: 1px solid var(--border-hover);
+            padding: 4px 8px; border-radius: 4px; font-size: 12px;
+            cursor: pointer; outline: none; font-family: inherit;
+        }
+        #project-select:hover { background: var(--bg-button-hover); color: #fff; }
+        #project-select:focus { border-color: var(--accent); }
+
+        .mic-btn { font-size: 16px !important; padding: 3px 8px !important; }
+        .mic-btn.recording { background: #c33 !important; border-color: #f55 !important; animation: pulse 1s infinite; }
+        @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.6; } }
+
+        #projects-container { flex: 1; overflow: hidden; }
+        .project-view {
+            height: 100%;
+            grid-template-columns: 1fr 1fr;
+            grid-auto-rows: 1fr;
+            gap: 4px; padding: 4px;
+            overflow: hidden;
+        }
+        .multi-panel {
+            background: var(--bg-panel); border: 2px solid var(--border); border-radius: 6px;
+            display: flex; flex-direction: column; position: relative;
+            min-height: 0; overflow: hidden;
+        }
+        .multi-panel.active { border-color: var(--accent); }
+        .multi-panel .panel-header {
+            background: var(--bg-header); padding: 3px 8px; font-size: 11px; color: var(--text-muted);
+            display: flex; justify-content: space-between; align-items: center;
+            cursor: pointer; flex-shrink: 0; border-radius: 4px 4px 0 0;
+        }
+        .multi-panel .panel-header .name { font-family: monospace; }
+        .multi-panel .panel-header .hdr-buttons { display: flex; gap: 2px; }
+        .multi-panel .panel-header button {
+            background: none; border: none; color: var(--text-dim); cursor: pointer; font-size: 14px; padding: 0 4px;
+        }
+        .multi-panel .panel-header button:hover { color: #f44; }
+        .multi-panel .panel-header button.restart-btn:hover { color: var(--accent); }
+        .multi-panel .terminal-wrap { flex: 1; overflow: hidden; position: relative; min-height: 0; }
+        .multi-panel .terminal-wrap .xterm { position: absolute; top: 0; left: 0; width: 100%; height: 100%; }
+        .multi-panel .terminal-wrap .xterm-viewport,
+        .multi-panel .terminal-wrap .xterm-screen { width: 100% !important; height: 100% !important; }
+
+        .add-panel {
+            display: flex; align-items: center; justify-content: center;
+            border: 2px dashed var(--border); border-radius: 6px; cursor: pointer;
+            color: var(--text-dimmest); font-size: 48px; transition: all 0.2s;
+            min-height: 100px;
+        }
+        .add-panel:hover { border-color: var(--accent-dim); color: var(--accent); }
+
+        /* Backend picker popup */
+        .backend-picker {
+            position: absolute; z-index: 50;
+            background: var(--bg-header); border: 1px solid var(--border-hover);
+            border-radius: 10px; padding: 8px;
+            box-shadow: 0 8px 32px rgba(0,0,0,0.6);
+            display: flex; gap: 8px;
+        }
+        .backend-picker .bp-option {
+            display: flex; flex-direction: column; align-items: center; gap: 6px;
+            padding: 14px 22px; border-radius: 8px; cursor: pointer;
+            border: 2px solid var(--border); transition: all 0.15s;
+            background: var(--bg-panel); min-width: 110px;
+        }
+        .backend-picker .bp-option:hover {
+            border-color: var(--accent); background: var(--bg-button);
+        }
+        .backend-picker .bp-option .bp-icon {
+            font-size: 28px; line-height: 1;
+        }
+        .backend-picker .bp-option .bp-label {
+            font-size: 13px; font-weight: 600; color: var(--text);
+        }
+        .backend-picker .bp-option .bp-sub {
+            font-size: 10px; color: var(--text-dim);
+        }
+
+        /* Voice overlay */
+        #voice-overlay {
+            display: none; position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%);
+            background: var(--bg-header); border: 1px solid var(--accent-dim); border-radius: 12px;
+            padding: 8px 16px; color: var(--text); font-size: 13px; z-index: 100;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.5);
+        }
+        #voice-overlay.active { display: flex; align-items: center; gap: 8px; }
+
+        /* Voice review modal */
+        #voice-modal {
+            display: none; position: fixed; inset: 0; z-index: 200;
+            background: rgba(0,0,0,0.6); align-items: center; justify-content: center;
+        }
+        #voice-modal.active { display: flex; }
+        #voice-modal .modal-box {
+            background: var(--bg-header); border: 1px solid var(--border);
+            border-radius: 12px; padding: 16px; width: 90%; max-width: 520px;
+            box-shadow: 0 8px 40px rgba(0,0,0,0.6);
+        }
+        #voice-modal .modal-title {
+            font-size: 13px; color: var(--text-muted); margin-bottom: 8px;
+        }
+        #voice-modal textarea {
+            width: 100%; min-height: 120px; background: var(--bg-panel);
+            border: 1px solid var(--border); border-radius: 8px;
+            color: var(--text); font-family: 'Segoe UI', system-ui, sans-serif;
+            font-size: 14px; padding: 10px; resize: vertical; outline: none;
+        }
+        #voice-modal textarea:focus { border-color: var(--accent-dim); }
+        #voice-modal .modal-buttons {
+            display: flex; gap: 8px; margin-top: 10px; justify-content: flex-end;
+        }
+        #voice-modal .modal-buttons button {
+            padding: 6px 16px; border-radius: 6px; border: 1px solid var(--border);
+            cursor: pointer; font-size: 13px; transition: all 0.15s;
+        }
+        #voice-modal .btn-cancel {
+            background: var(--bg-button); color: var(--text-secondary);
+        }
+        #voice-modal .btn-cancel:hover { background: var(--bg-button-hover); }
+        #voice-modal .btn-refine {
+            background: var(--bg-button); color: #e0b0ff; border-color: var(--accent-dim);
+        }
+        #voice-modal .btn-refine:hover { background: var(--bg-button-hover); color: #f0d0ff; }
+        #voice-modal .btn-refine:disabled { opacity: 0.5; cursor: wait; }
+        #voice-modal .btn-send {
+            background: var(--accent); color: #fff; border-color: var(--accent);
+        }
+        #voice-modal .btn-send:hover { background: var(--accent-dim); }
+
+        /* Image paste panel */
+        #paste-panel {
+            display: none; position: fixed; bottom: 0; left: 0; right: 0;
+            background: var(--bg-header); border-top: 1px solid var(--border);
+            z-index: 50; box-shadow: 0 -4px 20px rgba(0,0,0,0.4);
+        }
+        #paste-panel.open { display: flex; flex-direction: column; }
+        #paste-panel .paste-header {
+            display: flex; justify-content: space-between; align-items: center;
+            padding: 4px 12px; font-size: 12px; color: var(--text-muted);
+        }
+        #paste-panel .paste-header button {
+            background: none; border: none; color: var(--text-dim); cursor: pointer; font-size: 16px;
+        }
+        #paste-panel .paste-header button:hover { color: #fff; }
+        #paste-body {
+            display: flex; gap: 8px; padding: 0 12px 8px; align-items: flex-start; flex-wrap: wrap;
+        }
+        #paste-zone {
+            width: 120px; height: 80px; border: 2px dashed var(--border-hover); border-radius: 8px;
+            display: flex; align-items: center; justify-content: center;
+            color: var(--text-dimmer); font-size: 11px; text-align: center; cursor: text;
+            flex-shrink: 0; outline: none; overflow: hidden;
+        }
+        #paste-zone:focus { border-color: var(--accent); color: var(--text-dim); }
+        #paste-zone img { display: none; }
+        #paste-results {
+            display: flex; flex-wrap: wrap; gap: 6px; flex: 1; min-height: 40px; align-items: center;
+        }
+        .paste-result {
+            display: flex; align-items: center; gap: 6px; background: var(--bg-panel);
+            border: 1px solid var(--border); border-radius: 6px; padding: 4px 8px; font-size: 12px;
+        }
+        .paste-result .path {
+            font-family: monospace; color: #8f8; cursor: pointer; user-select: all;
+            word-break: break-all;
+        }
+        .paste-result .path:hover { color: #aff; }
+        .paste-result .thumb { width: 36px; height: 36px; object-fit: cover; border-radius: 4px; }
+        .paste-result .copy-btn {
+            background: var(--bg-button); border: 1px solid var(--border-hover); color: var(--text-secondary);
+            padding: 2px 8px; border-radius: 4px; cursor: pointer; font-size: 11px; white-space: nowrap;
+        }
+        .paste-result .copy-btn:hover { background: var(--bg-button-hover); color: #fff; }
+        .paste-result .copied { color: #8f8; font-size: 11px; }
+
+        /* File manager panel */
+        #file-panel {
+            display: none; position: fixed; bottom: 0; left: 0; right: 0;
+            background: var(--bg-header); border-top: 1px solid var(--border);
+            z-index: 50; max-height: 45vh; overflow: hidden;
+            box-shadow: 0 -4px 20px rgba(0,0,0,0.4);
+        }
+        #file-panel.open { display: flex; flex-direction: column; }
+        .file-header {
+            display: flex; justify-content: space-between; align-items: center;
+            padding: 4px 12px; font-size: 12px; color: var(--text-muted); flex-shrink: 0;
+        }
+        .file-header button {
+            background: none; border: none; color: var(--text-dim); cursor: pointer; font-size: 16px;
+        }
+        .file-header button:hover { color: #fff; }
+        #file-breadcrumb {
+            display: flex; align-items: center; gap: 2px; padding: 0 12px 4px;
+            font-size: 12px; font-family: monospace; flex-shrink: 0; flex-wrap: wrap;
+        }
+        #file-breadcrumb span {
+            color: var(--text-dim); cursor: pointer; padding: 1px 4px; border-radius: 3px;
+        }
+        #file-breadcrumb span:hover { background: var(--bg-button); color: var(--text); }
+        #file-breadcrumb .sep { color: var(--text-dimmer); cursor: default; padding: 0; }
+        #file-breadcrumb .sep:hover { background: none; color: var(--text-dimmer); }
+        #file-list {
+            flex: 1; overflow-y: auto; padding: 0 8px 4px; min-height: 0;
+        }
+        #file-list::-webkit-scrollbar { width: 6px; }
+        #file-list::-webkit-scrollbar-thumb { background: var(--border-hover); border-radius: 3px; }
+        .file-item {
+            display: flex; align-items: center; gap: 8px; padding: 4px 8px;
+            font-size: 12px; cursor: pointer; border-radius: 4px; color: var(--text-secondary);
+        }
+        .file-item:hover { background: var(--bg-button); color: var(--text); }
+        .file-item .icon { width: 20px; text-align: center; flex-shrink: 0; }
+        .file-item .name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: monospace; }
+        .file-item .meta { color: var(--text-dim); font-size: 11px; white-space: nowrap; }
+        .file-loading, .file-empty {
+            text-align: center; padding: 20px; color: var(--text-dim); font-size: 12px;
+        }
+        #file-upload-zone {
+            margin: 4px 8px 8px; padding: 10px; border: 2px dashed var(--border-hover); border-radius: 6px;
+            text-align: center; color: var(--text-dimmer); font-size: 11px; cursor: pointer;
+            transition: all 0.2s; flex-shrink: 0;
+        }
+        #file-upload-zone:hover, #file-upload-zone.dragover {
+            border-color: var(--accent); color: var(--text-muted); background: rgba(168,85,247,0.05);
+        }
+        /* Project settings panel */
+        #settings-panel {
+            display: none; position: fixed; inset: 0; z-index: 200;
+            background: rgba(0,0,0,0.6); align-items: center; justify-content: center;
+        }
+        #settings-panel.active { display: flex; }
+        #settings-panel .settings-box {
+            background: var(--bg-header); border: 1px solid var(--border);
+            border-radius: 12px; padding: 16px; width: 90%; max-width: 560px;
+            max-height: 85vh; overflow-y: auto;
+            box-shadow: 0 8px 40px rgba(0,0,0,0.6);
+        }
+        #settings-panel .settings-title {
+            font-size: 15px; font-weight: 600; color: var(--text); margin-bottom: 12px;
+            display: flex; justify-content: space-between; align-items: center;
+        }
+        #settings-panel .settings-title button {
+            background: none; border: none; color: var(--text-dim); cursor: pointer; font-size: 18px;
+        }
+        #settings-panel .settings-title button:hover { color: #fff; }
+        .proj-list { display: flex; flex-direction: column; gap: 6px; margin-bottom: 12px; }
+        .proj-row {
+            display: flex; align-items: center; gap: 8px; padding: 8px 10px;
+            background: var(--bg-panel); border: 1px solid var(--border); border-radius: 8px;
+            font-size: 13px; color: var(--text);
+        }
+        .proj-row .color-dot {
+            width: 14px; height: 14px; border-radius: 50%; flex-shrink: 0;
+        }
+        .proj-row .proj-name { flex: 1; font-weight: 500; }
+        .proj-row .proj-path { flex: 1; color: var(--text-dim); font-family: monospace; font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .proj-row .badge-on {
+            font-size: 10px; padding: 1px 6px; border-radius: 8px;
+            background: #065f46; color: #6ee7b7;
+        }
+        .proj-row button {
+            background: none; border: none; color: var(--text-dim); cursor: pointer; font-size: 14px; padding: 2px 4px;
+        }
+        .proj-row button:hover { color: #fff; }
+        .proj-row button.del:hover { color: #f87171; }
+        .proj-form { display: flex; flex-direction: column; gap: 8px; }
+        .proj-form .form-row {
+            display: flex; align-items: center; gap: 8px;
+        }
+        .proj-form label { font-size: 12px; color: var(--text-muted); width: 80px; flex-shrink: 0; }
+        .proj-form input[type="text"] {
+            flex: 1; background: var(--bg-panel); border: 1px solid var(--border);
+            border-radius: 6px; padding: 5px 8px; color: var(--text); font-size: 13px; outline: none;
+        }
+        .proj-form input[type="text"]:focus { border-color: var(--accent-dim); }
+        .proj-form input[type="color"] {
+            width: 36px; height: 28px; border: 1px solid var(--border); border-radius: 6px;
+            background: var(--bg-panel); cursor: pointer; padding: 2px;
+        }
+        .proj-form .check-row { display: flex; align-items: center; gap: 6px; font-size: 13px; color: var(--text-secondary); }
+        .proj-form .form-buttons { display: flex; gap: 8px; justify-content: flex-end; margin-top: 4px; }
+        .proj-form .form-buttons button {
+            padding: 5px 14px; border-radius: 6px; border: 1px solid var(--border);
+            cursor: pointer; font-size: 12px;
+        }
+        .proj-form .btn-save { background: var(--accent); color: #fff; border-color: var(--accent); }
+        .proj-form .btn-save:hover { opacity: 0.85; }
+        .proj-form .btn-cancel-form { background: var(--bg-button); color: var(--text-secondary); }
+    </style>
+</head>
+<body>
+    <div id="header">
+        <div class="left">
+            <span class="title">⚡ Claude Code Bridge</span>
+            <span id="status" class="badge connecting">connecting...</span>
+        </div>
+        <div class="controls">
+            <select id="project-select" onchange="switchProject(this.value)" title="Select project"></select>
+            <button class="mic-btn" id="mic-btn" onclick="toggleVoice('direct')" title="Voice input → direct to terminal">🎤</button>
+            <button class="mic-btn" id="mic-btn-edit" onclick="toggleVoice('edit')" title="Voice input → edit before sending">🎤✏️</button>
+            <button onclick="openSettings()" title="Project settings">⚙️</button>
+            <button id="btn-paste" onclick="togglePastePanel()" title="Paste images">📎</button>
+            <button id="btn-files" onclick="toggleFilePanel()" title="File manager">📁</button>
+        </div>
+    </div>
+
+    <div id="projects-container"></div>
+
+    <div id="paste-panel">
+        <div class="paste-header">
+            <span>Ctrl+V here to paste an image</span>
+            <button onclick="togglePastePanel()">✕</button>
+        </div>
+        <div id="paste-body">
+            <div id="paste-zone" contenteditable="true" tabindex="0">Ctrl+V</div>
+            <div id="paste-results"></div>
+        </div>
+    </div>
+
+    <div id="file-panel">
+        <div class="file-header">
+            <span>Project files</span>
+            <button onclick="toggleFilePanel()">✕</button>
+        </div>
+        <div id="file-breadcrumb"></div>
+        <div id="file-list"></div>
+        <div id="file-upload-zone" onclick="document.getElementById('file-input').click()">
+            Drag files here or click to upload
+        </div>
+        <input type="file" id="file-input" multiple style="display:none" onchange="uploadFiles(this.files)">
+    </div>
+
+    <div id="settings-panel">
+        <div class="settings-box">
+            <div class="settings-title">
+                <span>Project settings</span>
+                <button onclick="closeSettings()">✕</button>
+            </div>
+            <div id="settings-project-list" class="proj-list"></div>
+            <div id="settings-form-area"></div>
+        </div>
+    </div>
+
+    <div id="voice-modal">
+        <div class="modal-box">
+            <div class="modal-title">Recognized text — review and send:</div>
+            <textarea id="voice-edit"></textarea>
+            <div class="modal-buttons">
+                <button class="btn-cancel" onclick="closeVoiceModal()">Cancel</button>
+                <button class="btn-refine" id="btn-refine" onclick="refineVoiceText()">✨ Refine</button>
+                <button class="btn-send" onclick="sendVoiceText()">Send</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="voice-overlay">
+        <span>🎤</span>
+        <span id="voice-text">Speak...</span>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/xterm@5.3.0/lib/xterm.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/xterm-addon-fit@0.8.0/lib/xterm-addon-fit.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/xterm-addon-web-links@0.9.0/lib/xterm-addon-web-links.js"></script>
+    <script>
+        const statusEl = document.getElementById('status');
+
+        // --- Theme generation from accent color ---
+        function hexToHSL(hex) {
+            let r = parseInt(hex.slice(1,3), 16) / 255;
+            let g = parseInt(hex.slice(3,5), 16) / 255;
+            let b = parseInt(hex.slice(5,7), 16) / 255;
+            const max = Math.max(r,g,b), min = Math.min(r,g,b);
+            let h, s, l = (max + min) / 2;
+            if (max === min) { h = s = 0; }
+            else {
+                const d = max - min;
+                s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
+                if (max === r) h = ((g - b) / d + (g < b ? 6 : 0)) / 6;
+                else if (max === g) h = ((b - r) / d + 2) / 6;
+                else h = ((r - g) / d + 4) / 6;
+            }
+            return [Math.round(h * 360), Math.round(s * 100), Math.round(l * 100)];
+        }
+
+        function hslToHex(h, s, l) {
+            s /= 100; l /= 100;
+            const a = s * Math.min(l, 1 - l);
+            const f = n => {
+                const k = (n + h / 30) % 12;
+                const color = l - a * Math.max(Math.min(k - 3, 9 - k, 1), -1);
+                return Math.round(255 * color).toString(16).padStart(2, '0');
+            };
+            return `#${f(0)}${f(8)}${f(4)}`;
+        }
+
+        function generateThemeFromAccent(hex) {
+            const [h, s] = hexToHSL(hex);
+            const isGray = s < 8;
+            const sat = isGray ? 0 : Math.min(s, 30);
+            const satBg = isGray ? 0 : Math.min(s, 20);
+            const satText = isGray ? 0 : Math.min(s, 15);
+            return {
+                '--bg-primary':      hslToHex(h, satBg, 8),
+                '--bg-header':       hslToHex(h, satBg, 12),
+                '--bg-panel':        hslToHex(h, satBg, 5),
+                '--bg-button':       hslToHex(h, satBg, 20),
+                '--bg-button-hover': hslToHex(h, satBg, 28),
+                '--border':          hslToHex(h, satBg, 20),
+                '--border-hover':    hslToHex(h, satBg, 28),
+                '--accent':          hex,
+                '--accent-dim':      hslToHex(h, sat, 35),
+                '--text':            hslToHex(h, satText, 92),
+                '--text-secondary':  hslToHex(h, satText, 78),
+                '--text-muted':      hslToHex(h, satText, 62),
+                '--text-dim':        hslToHex(h, satText, 47),
+                '--text-dimmer':     hslToHex(h, satText, 35),
+                '--text-dimmest':    hslToHex(h, satText, 23),
+            };
+        }
+
+        function applyProjectTheme(pid) {
+            const proj = allProjects.find(p => p.id === pid);
+            const color = (proj && proj.color) || '#a855f7';
+            const theme = generateThemeFromAccent(color);
+            for (const [prop, val] of Object.entries(theme)) {
+                document.documentElement.style.setProperty(prop, val);
+            }
+            const termTheme = {
+                background: theme['--bg-panel'],
+                foreground: theme['--text'],
+                cursor: theme['--text'],
+                selectionBackground: theme['--accent'] + '44',
+            };
+            (projectPanels[pid] || []).forEach(p => {
+                p.term.options.theme = termTheme;
+            });
+        }
+
+        // Per-project state
+        const projectPanels = {};      // pid -> [panel, ...]
+        const projectActive = {};      // pid -> active panel
+        const projectContainers = {};  // pid -> DOM element
+        let allProjects = [];
+        let currentProject = null;
+
+        // Convenience aliases — always point to current project's data
+        let panels = [];
+        let activePanel = null;
+
+        // Ctrl+Shift+C = copy selected, Ctrl+Shift+V = paste
+        function setupTermCopyPaste(term) {
+            term.attachCustomKeyEventHandler((e) => {
+                if (e.type !== 'keydown') return true;
+                if (e.ctrlKey && e.shiftKey && e.code === 'KeyC') {
+                    const sel = term.getSelection();
+                    if (sel) navigator.clipboard.writeText(sel);
+                    return false;
+                }
+                if (e.ctrlKey && e.shiftKey && e.code === 'KeyV') {
+                    navigator.clipboard.readText().then(text => {
+                        if (text) term.paste(text);
+                    });
+                    return false;
+                }
+                return true;
+            });
+        }
+
+        const TERM_OPTS = {
+            cursorBlink: true,
+            fontSize: 14,
+            fontFamily: '"Fira Code", "Cascadia Code", "JetBrains Mono", monospace',
+            theme: { background: '#130a1a', foreground: '#e8e0f0', cursor: '#e8e0f0', selectionBackground: '#7e3fbd44' },
+            scrollback: 10000,
+        };
+
+        // --- Project containers ---
+        function getProjectContainer(pid) {
+            if (projectContainers[pid]) return projectContainers[pid];
+            const el = document.createElement('div');
+            el.className = 'project-view';
+            el.style.display = 'none';
+            document.getElementById('projects-container').appendChild(el);
+            projectContainers[pid] = el;
+            return el;
+        }
+
+        // --- Terminal + WebSocket ---
+        function observeFit(panel) {
+            let resizeTimer = null;
+            const ro = new ResizeObserver(() => {
+                if (resizeTimer) clearTimeout(resizeTimer);
+                resizeTimer = setTimeout(() => {
+                    try {
+                        const oldCols = panel.term.cols;
+                        const oldRows = panel.term.rows;
+                        panel.fitAddon.fit();
+                        if (panel.term.cols !== oldCols || panel.term.rows !== oldRows) {
+                            if (panel.ws && panel.ws.readyState === WebSocket.OPEN) {
+                                panel.ws.send(JSON.stringify({ type: 'resize', cols: panel.term.cols, rows: panel.term.rows }));
+                            }
+                        }
+                    } catch(e) {}
+                }, 300);
+            });
+            ro.observe(panel.element);
+            panel._resizeObserver = ro;
+        }
+
+        function createPanel(windowIdx, container) {
+            // Deduplicate: remove any existing panel with same windowIdx in current project
+            const existingIdx = panels.findIndex(p => p.windowIdx === windowIdx);
+            if (existingIdx !== -1) {
+                const old = panels[existingIdx];
+                if (old._resizeObserver) old._resizeObserver.disconnect();
+                if (old.ws) { old.ws.onclose = null; old.ws.close(); }
+                try { old.term.dispose(); } catch(e) {}
+                panels.splice(existingIdx, 1);
+            }
+
+            const term = new Terminal(TERM_OPTS);
+            const fitAddon = new FitAddon.FitAddon();
+            term.loadAddon(fitAddon);
+            term.loadAddon(new WebLinksAddon.WebLinksAddon());
+            term.open(container);
+
+            setupTermCopyPaste(term);
+
+            const panel = { project: currentProject, windowIdx, term, fitAddon, ws: null, element: container, _reconnectAttempts: 0 };
+            try { fitAddon.fit(); } catch(e) {}
+            observeFit(panel);
+            connectPanel(panel);
+            panels.push(panel);
+            activePanel = panel;
+            projectActive[currentProject] = panel;
+            return panel;
+        }
+
+        const MAX_RECONNECT_ATTEMPTS = 5;
+
+        function connectPanel(panel) {
+            const proto = location.protocol === 'https:' ? 'wss' : 'ws';
+            const pid = panel.project || currentProject;
+            const ws = new WebSocket(`${proto}://${location.host}/ws/terminal?project=${pid}&window=${panel.windowIdx}`);
+            ws.binaryType = 'arraybuffer';
+            panel.ws = ws;
+
+            ws.onopen = () => {
+                panel._reconnectAttempts = 0;
+                if (panel.project === currentProject) updateStatus('connected');
+                ws.send(JSON.stringify({ type: 'resize', cols: panel.term.cols, rows: panel.term.rows }));
+            };
+            ws.onmessage = (e) => {
+                if (e.data instanceof ArrayBuffer) {
+                    panel.term.write(new Uint8Array(e.data));
+                } else {
+                    try {
+                        const msg = JSON.parse(e.data);
+                        if (msg.type === 'error' && msg.error === 'window_dead') {
+                            panel.term.write('\r\n\x1b[31m[Window closed — tmux window no longer exists]\x1b[0m\r\n');
+                            panel._dead = true;
+                            return;
+                        }
+                    } catch(ex) {}
+                    panel.term.write(e.data);
+                }
+            };
+            ws.onclose = (ev) => {
+                if (panel.project === currentProject) updateStatus('disconnected');
+                if (panel._dead || panel._reconnecting) return;
+                if (ev.code === 4404) {
+                    panel._dead = true;
+                    panel.term.write('\r\n\x1b[31m[Window closed — tmux window no longer exists]\x1b[0m\r\n');
+                    const pnls = projectPanels[panel.project] || [];
+                    if (pnls.length > 1) {
+                        setTimeout(() => removeDead(panel), 2000);
+                    }
+                    return;
+                }
+                panel._reconnectAttempts = (panel._reconnectAttempts || 0) + 1;
+                if (panel._reconnectAttempts > MAX_RECONNECT_ATTEMPTS) {
+                    panel.term.write('\r\n\x1b[33m[Reconnect failed after ' + MAX_RECONNECT_ATTEMPTS + ' attempts]\x1b[0m\r\n');
+                    panel._dead = true;
+                    return;
+                }
+                const delay = Math.min(1000 * panel._reconnectAttempts, 5000);
+                const pnls = projectPanels[panel.project] || [];
+                setTimeout(() => { if (pnls.includes(panel) && !panel._dead) connectPanel(panel); }, delay);
+            };
+            ws.onerror = () => ws.close();
+
+            if (panel._onDataDispose) {
+                panel._onDataDispose.dispose();
+            }
+            panel._onDataDispose = panel.term.onData(data => {
+                if (ws.readyState === WebSocket.OPEN) ws.send(data);
+            });
+        }
+
+        function removeDead(panel) {
+            const pnls = projectPanels[panel.project];
+            if (!pnls) return;
+            const idx = pnls.indexOf(panel);
+            if (idx === -1) return;
+            if (panel._resizeObserver) panel._resizeObserver.disconnect();
+            if (panel.ws) { panel.ws.onclose = null; panel.ws.close(); }
+            try { panel.term.dispose(); } catch(e) {}
+            pnls.splice(idx, 1);
+            if (projectActive[panel.project] === panel) {
+                projectActive[panel.project] = pnls[0] || null;
+            }
+            if (panel.project === currentProject) {
+                panels = pnls;
+                activePanel = projectActive[currentProject];
+                renderMulti();
+            }
+        }
+
+        function reconnectPanel(panel) {
+            if (panel._dead) return;
+            panel._reconnecting = true;
+            if (panel.ws) { panel.ws.onclose = null; panel.ws.close(); }
+            panel._reconnecting = false;
+            panel._reconnectAttempts = 0;
+            panel.term.clear();
+            try { panel.fitAddon.fit(); } catch(e) {}
+            connectPanel(panel);
+        }
+
+        function updateStatus(state) {
+            statusEl.textContent = state;
+            statusEl.className = 'badge ' + state;
+        }
+
+        // --- Voice input (MediaRecorder + server-side Whisper) ---
+        let mediaRecorder = null;
+        let audioChunks = [];
+        let isRecording = false;
+        let audioStream = null;
+        let voiceMode = 'direct'; // 'direct' = straight to terminal, 'edit' = modal
+
+        function toggleVoice(mode) {
+            if (isRecording) {
+                stopVoice();
+            } else {
+                voiceMode = mode || 'direct';
+                startVoice();
+            }
+        }
+
+        async function startVoice() {
+            const activeMicBtn = voiceMode === 'edit'
+                ? document.getElementById('mic-btn-edit')
+                : document.getElementById('mic-btn');
+            const overlay = document.getElementById('voice-overlay');
+            const voiceText = document.getElementById('voice-text');
+
+            try {
+                audioStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+
+                const mimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
+                    ? 'audio/webm;codecs=opus'
+                    : MediaRecorder.isTypeSupported('audio/webm')
+                        ? 'audio/webm'
+                        : '';
+
+                mediaRecorder = mimeType
+                    ? new MediaRecorder(audioStream, { mimeType })
+                    : new MediaRecorder(audioStream);
+                audioChunks = [];
+
+                mediaRecorder.ondataavailable = (e) => {
+                    if (e.data.size > 0) audioChunks.push(e.data);
+                };
+
+                mediaRecorder.onstop = async () => {
+                    if (audioStream) {
+                        audioStream.getTracks().forEach(t => t.stop());
+                        audioStream = null;
+                    }
+
+                    const blob = new Blob(audioChunks, { type: mediaRecorder.mimeType || 'audio/webm' });
+
+                    if (blob.size < 500) {
+                        overlay.classList.remove('active');
+                        return;
+                    }
+
+                    voiceText.textContent = '🔄 Recognizing...';
+
+                    try {
+                        const resp = await fetch('/api/transcribe', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'audio/webm' },
+                            body: blob
+                        });
+                        const data = await resp.json();
+
+                        if (data.text) {
+                            overlay.classList.remove('active');
+                            if (voiceMode === 'edit') {
+                                showVoiceModal(data.text);
+                            } else {
+                                // Send directly to terminal
+                                const ws = activePanel?.ws;
+                                if (ws && ws.readyState === WebSocket.OPEN) {
+                                    ws.send(data.text);
+                                }
+                            }
+                        } else {
+                            voiceText.textContent = '❌ Recognition failed' + (data.error ? ': ' + data.error : '');
+                            setTimeout(() => overlay.classList.remove('active'), 3000);
+                        }
+                    } catch (e) {
+                        voiceText.textContent = '❌ Error: ' + e.message;
+                        setTimeout(() => overlay.classList.remove('active'), 3000);
+                    }
+                };
+
+                mediaRecorder.start(500);
+                isRecording = true;
+                activeMicBtn.classList.add('recording');
+                overlay.classList.add('active');
+                voiceText.textContent = '🎤 Speak... (click 🎤 to stop)';
+            } catch (e) {
+                alert('Microphone unavailable: ' + e.message);
+            }
+        }
+
+        function stopVoice() {
+            isRecording = false;
+            document.getElementById('mic-btn').classList.remove('recording');
+            document.getElementById('mic-btn-edit').classList.remove('recording');
+            if (mediaRecorder && mediaRecorder.state === 'recording') {
+                mediaRecorder.stop();
+            } else {
+                document.getElementById('voice-overlay').classList.remove('active');
+                if (audioStream) {
+                    audioStream.getTracks().forEach(t => t.stop());
+                    audioStream = null;
+                }
+            }
+        }
+
+        // --- Voice review modal ---
+        function showVoiceModal(text) {
+            const modal = document.getElementById('voice-modal');
+            const textarea = document.getElementById('voice-edit');
+            textarea.value = text;
+            modal.classList.add('active');
+            textarea.focus();
+        }
+
+        function closeVoiceModal() {
+            document.getElementById('voice-modal').classList.remove('active');
+        }
+
+        function sendVoiceText() {
+            const textarea = document.getElementById('voice-edit');
+            const text = textarea.value.trim();
+            if (!text || !activePanel) {
+                closeVoiceModal();
+                return;
+            }
+            const ws = activePanel.ws;
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                ws.send(text);
+            }
+            closeVoiceModal();
+        }
+
+        async function refineVoiceText() {
+            const textarea = document.getElementById('voice-edit');
+            const btn = document.getElementById('btn-refine');
+            const text = textarea.value.trim();
+            if (!text) return;
+
+            btn.disabled = true;
+            btn.textContent = '⏳ Refining...';
+
+            try {
+                const controller = new AbortController();
+                const timeout = setTimeout(() => controller.abort(), 30000);
+                const resp = await fetch('/api/refine-voice', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ text }),
+                    signal: controller.signal
+                });
+                clearTimeout(timeout);
+                const data = await resp.json();
+                if (data.text) {
+                    textarea.value = data.text;
+                } else {
+                    btn.textContent = '❌ Error';
+                    setTimeout(() => { btn.disabled = false; btn.textContent = '✨ Refine'; }, 2000);
+                    return;
+                }
+            } catch (e) {
+                btn.textContent = '❌ ' + e.message;
+                setTimeout(() => { btn.disabled = false; btn.textContent = '✨ Refine'; }, 2000);
+                return;
+            }
+            btn.disabled = false;
+            btn.textContent = '✨ Refine';
+        }
+
+        // Ctrl+Enter to send from modal
+        document.addEventListener('keydown', (e) => {
+            const modal = document.getElementById('voice-modal');
+            if (!modal.classList.contains('active')) return;
+            if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+                e.preventDefault();
+                sendVoiceText();
+            } else if (e.key === 'Escape') {
+                closeVoiceModal();
+            }
+        });
+
+        // --- Project settings panel ---
+        let settingsEditingId = null;
+
+        function openSettings() {
+            renderSettingsList();
+            document.getElementById('settings-panel').classList.add('active');
+        }
+
+        function closeSettings() {
+            document.getElementById('settings-panel').classList.remove('active');
+            settingsEditingId = null;
+        }
+
+        function renderSettingsList() {
+            const list = document.getElementById('settings-project-list');
+            const formArea = document.getElementById('settings-form-area');
+            list.innerHTML = '';
+            formArea.innerHTML = '';
+            settingsEditingId = null;
+
+            allProjects.forEach(p => {
+                const row = document.createElement('div');
+                row.className = 'proj-row';
+                row.innerHTML = `
+                    <span class="color-dot" style="background:${p.color}"></span>
+                    <span class="proj-name">${escapeHtml(p.name)}</span>
+                    <span class="proj-path">${escapeHtml(p.workdir)}</span>
+                    ${p.always_on ? '<span class="badge-on">ON</span>' : ''}
+                    <button onclick="editProject('${p.id}')" title="Edit">✏️</button>
+                    <button class="del" onclick="deleteProject('${p.id}')" title="Delete">🗑️</button>
+                `;
+                list.appendChild(row);
+            });
+
+            // Add new project button
+            const addBtn = document.createElement('button');
+            addBtn.className = 'btn-save';
+            addBtn.style.cssText = 'width:100%; padding:8px; font-size:13px; border-radius:8px; cursor:pointer; margin-top:4px;';
+            addBtn.textContent = '+ Add project';
+            addBtn.onclick = () => showProjectForm(null);
+            list.after(addBtn);
+        }
+
+        function showProjectForm(project) {
+            settingsEditingId = project ? project.id : null;
+            const formArea = document.getElementById('settings-form-area');
+            const isNew = !project;
+            formArea.innerHTML = `
+                <div class="proj-form" style="margin-top:12px; padding-top:12px; border-top:1px solid var(--border);">
+                    ${isNew ? `<div class="form-row">
+                        <label>ID</label>
+                        <input type="text" id="sf-id" placeholder="my-project" value="">
+                    </div>` : ''}
+                    <div class="form-row">
+                        <label>Name</label>
+                        <input type="text" id="sf-name" value="${project ? escapeHtml(project.name) : ''}">
+                    </div>
+                    <div class="form-row">
+                        <label>Path</label>
+                        <input type="text" id="sf-workdir" placeholder="/home/user/my-project" value="${project ? escapeHtml(project.workdir) : ''}">
+                    </div>
+                    <div class="form-row">
+                        <label>Color</label>
+                        <input type="color" id="sf-color" value="${project ? project.color : '#a855f7'}">
+                    </div>
+                    <div class="check-row">
+                        <input type="checkbox" id="sf-always-on" ${project && project.always_on ? 'checked' : ''}>
+                        <label for="sf-always-on" style="width:auto">Always running</label>
+                    </div>
+                    <div class="form-buttons">
+                        <button class="btn-cancel-form" onclick="renderSettingsList()">Cancel</button>
+                        <button class="btn-save" onclick="saveProject()">${isNew ? 'Add' : 'Save'}</button>
+                    </div>
+                </div>
+            `;
+        }
+
+        function editProject(pid) {
+            const proj = allProjects.find(p => p.id === pid);
+            if (proj) showProjectForm(proj);
+        }
+
+        async function saveProject() {
+            const isNew = !settingsEditingId;
+            const data = {
+                name: document.getElementById('sf-name').value,
+                workdir: document.getElementById('sf-workdir').value,
+                color: document.getElementById('sf-color').value,
+                always_on: document.getElementById('sf-always-on').checked,
+            };
+            if (isNew) {
+                data.id = document.getElementById('sf-id').value;
+            }
+
+            try {
+                const url = isNew ? '/api/projects' : `/api/projects/${settingsEditingId}`;
+                const method = isNew ? 'POST' : 'PUT';
+                const resp = await fetch(url, {
+                    method, headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(data)
+                });
+                const result = await resp.json();
+                if (!resp.ok) {
+                    alert(result.error || 'Error');
+                    return;
+                }
+                await loadProjects();
+                renderSettingsList();
+                applyProjectTheme(currentProject);
+            } catch (e) {
+                alert('Error: ' + e.message);
+            }
+        }
+
+        async function deleteProject(pid) {
+            if (!confirm(`Delete project "${pid}"?`)) return;
+            try {
+                const resp = await fetch(`/api/projects/${pid}`, { method: 'DELETE' });
+                const result = await resp.json();
+                if (!resp.ok) {
+                    alert(result.error || 'Error');
+                    return;
+                }
+                // Clean up frontend state
+                if (projectPanels[pid]) {
+                    for (const p of projectPanels[pid]) {
+                        if (p._resizeObserver) p._resizeObserver.disconnect();
+                        if (p.ws) { p.ws.onclose = null; p.ws.close(); }
+                        try { p.term.dispose(); } catch(e) {}
+                    }
+                    delete projectPanels[pid];
+                    delete projectActive[pid];
+                }
+                if (projectContainers[pid]) {
+                    projectContainers[pid].remove();
+                    delete projectContainers[pid];
+                }
+                await loadProjects();
+                if (pid === currentProject) {
+                    currentProject = result.current || allProjects[0]?.id;
+                    await switchProject(currentProject);
+                }
+                renderSettingsList();
+            } catch (e) {
+                alert('Error: ' + e.message);
+            }
+        }
+
+        // --- Multi panel rendering ---
+        // Builds DOM only; does NOT call term.open() on hidden containers.
+        // Caller must call activateCurrentProject() after making container visible.
+        function renderMulti() {
+            const mv = projectContainers[currentProject];
+            if (!mv) return;
+            mv.innerHTML = '';
+            const isVisible = mv.style.display !== 'none';
+
+            panels.forEach((p, i) => {
+                const div = document.createElement('div');
+                div.className = 'multi-panel' + (p === activePanel ? ' active' : '');
+                const termId = `mterm-${p.project}-${p.windowIdx}-${Date.now()}`;
+                div.innerHTML = `
+                    <div class="panel-header">
+                        <span class="name">Claude #${p.windowIdx}</span>
+                        <div class="hdr-buttons">
+                            <button class="restart-btn" title="Restart">🔄</button>
+                            ${panels.length > 1 ? `<button class="close-btn" title="Close">✕</button>` : ''}
+                        </div>
+                    </div>
+                    <div class="terminal-wrap" id="${termId}"></div>
+                `;
+                div.querySelector('.panel-header').onclick = () => {
+                    activePanel = p;
+                    projectActive[currentProject] = p;
+                    document.querySelectorAll('.multi-panel').forEach(el => el.classList.remove('active'));
+                    div.classList.add('active');
+                    p.term.focus();
+                };
+                div.querySelector('.restart-btn').onclick = (e) => { e.stopPropagation(); restartPanel(i); };
+                const closeBtn = div.querySelector('.close-btn');
+                if (closeBtn) {
+                    closeBtn.onclick = (e) => { e.stopPropagation(); closePanel(i); };
+                }
+                mv.appendChild(div);
+
+                const el = document.getElementById(termId);
+                if (isVisible) {
+                    // Container visible — safe to open terminal immediately
+                    p.term.open(el);
+                    p.element = el;
+                    if (p._resizeObserver) p._resizeObserver.disconnect();
+                    observeFit(p);
+                } else {
+                    // Container hidden — defer open until activation
+                    p._pendingElement = el;
+                }
+            });
+
+            // Add button — shows backend picker
+            const addBtn = document.createElement('div');
+            addBtn.className = 'add-panel';
+            addBtn.textContent = '+';
+            addBtn.onclick = (e) => showBackendPicker(e, addBtn);
+            mv.appendChild(addBtn);
+
+            if (isVisible) {
+                activateCurrentProject();
+            }
+        }
+
+        // Open pending terminals, fit with retries, connect WebSockets.
+        // Must only be called when container is display:grid (visible).
+        function activateCurrentProject() {
+            const container = projectContainers[currentProject];
+            if (!container || container.style.display === 'none') return;
+
+            // Phase 1: open any terminals that were deferred (created while hidden)
+            panels.forEach(p => {
+                if (p._pendingElement) {
+                    p.term.open(p._pendingElement);
+                    p.element = p._pendingElement;
+                    delete p._pendingElement;
+                    if (p._resizeObserver) p._resizeObserver.disconnect();
+                    observeFit(p);
+                }
+            });
+
+            // Phase 2: fit + connect with retries until dimensions are sane
+            let attempts = 0;
+            const doFit = () => {
+                let allGood = true;
+                panels.forEach(p => {
+                    try {
+                        p.fitAddon.fit();
+                        if (p.term.cols < 10 || p.term.rows < 3) allGood = false;
+                    } catch(e) { allGood = false; }
+
+                    if (!p.ws || p.ws.readyState > WebSocket.OPEN) {
+                        connectPanel(p);
+                    } else if (p.ws && p.ws.readyState === WebSocket.OPEN) {
+                        p.ws.send(JSON.stringify({ type: 'resize', cols: p.term.cols, rows: p.term.rows }));
+                    }
+                });
+                attempts++;
+                // Retry if dimensions are still bad (font not loaded, layout not computed)
+                if (!allGood && attempts < 8) {
+                    setTimeout(doFit, attempts * 100);
+                }
+            };
+
+            // Wait for fonts, then start fitting
+            document.fonts.ready.then(() => {
+                requestAnimationFrame(() => requestAnimationFrame(doFit));
+            });
+        }
+
+        // Cached backends list from server
+        let _availableBackends = null;
+
+        async function fetchBackends() {
+            if (_availableBackends) return _availableBackends;
+            try {
+                const resp = await fetch('/api/backends');
+                _availableBackends = await resp.json();
+            } catch (e) {
+                _availableBackends = [{ id: 'claude', name: 'Claude', icon: '🟣', sub: 'Claude Code CLI' }];
+            }
+            return _availableBackends;
+        }
+
+        async function showBackendPicker(e, addBtn) {
+            const backends = await fetchBackends();
+
+            // If only one backend, skip the picker
+            if (backends.length <= 1) {
+                addNewPanel(backends[0].id);
+                return;
+            }
+
+            // Remove existing picker if any
+            const existing = document.querySelector('.backend-picker');
+            if (existing) { existing.remove(); return; }
+
+            const picker = document.createElement('div');
+            picker.className = 'backend-picker';
+            picker.innerHTML = backends.map(b => `
+                <div class="bp-option" data-backend="${b.id}">
+                    <span class="bp-icon">${b.icon}</span>
+                    <span class="bp-label">${b.name}</span>
+                    <span class="bp-sub">${b.sub}</span>
+                </div>
+            `).join('');
+
+            // Position picker centered over the add button
+            const rect = addBtn.getBoundingClientRect();
+            picker.style.left = (rect.left + rect.width / 2 - 130) + 'px';
+            picker.style.top = (rect.top + rect.height / 2 - 50) + 'px';
+
+            picker.querySelectorAll('.bp-option').forEach(opt => {
+                opt.onclick = (ev) => {
+                    ev.stopPropagation();
+                    picker.remove();
+                    addNewPanel(opt.dataset.backend);
+                };
+            });
+
+            // Close on outside click
+            const closeHandler = (ev) => {
+                if (!picker.contains(ev.target) && ev.target !== addBtn) {
+                    picker.remove();
+                    document.removeEventListener('click', closeHandler, true);
+                }
+            };
+            setTimeout(() => document.addEventListener('click', closeHandler, true), 0);
+
+            document.body.appendChild(picker);
+        }
+
+        async function addNewPanel(backend = 'claude') {
+            try {
+                const resp = await fetch(`/api/windows?project=${currentProject}&backend=${backend}`, { method: 'POST' });
+                const data = await resp.json();
+                const windowIdx = data.index;
+                const label = backend === 'ralph' ? 'Ralph' : 'Claude';
+
+                const mv = projectContainers[currentProject];
+                const termId = `mterm-new-${currentProject}-${windowIdx}`;
+                const div = document.createElement('div');
+                div.className = 'multi-panel';
+                div.innerHTML = `
+                    <div class="panel-header">
+                        <span class="name">${label} #${windowIdx}</span>
+                        <div class="hdr-buttons">
+                            <button class="restart-btn" title="Restart">🔄</button>
+                            <button class="close-btn" title="Close">✕</button>
+                        </div>
+                    </div>
+                    <div class="terminal-wrap" id="${termId}"></div>
+                `;
+                const addBtnEl = mv.querySelector('.add-panel');
+                mv.insertBefore(div, addBtnEl);
+
+                const termEl = document.getElementById(termId);
+                const panel = createPanel(windowIdx, termEl);
+                panel.backend = backend;
+
+                div.querySelector('.panel-header').onclick = () => {
+                    activePanel = panel;
+                    projectActive[currentProject] = panel;
+                    document.querySelectorAll('.multi-panel').forEach(el => el.classList.remove('active'));
+                    div.classList.add('active');
+                    panel.term.focus();
+                };
+                div.querySelector('.restart-btn').onclick = (e) => {
+                    e.stopPropagation();
+                    restartPanel(panels.indexOf(panel));
+                };
+                div.querySelector('.close-btn').onclick = (e) => {
+                    e.stopPropagation();
+                    closePanel(panels.indexOf(panel));
+                };
+            } catch (e) {
+                console.error('Failed to create window:', e);
+            }
+        }
+
+        async function closePanel(idx) {
+            if (panels.length <= 1) return;
+            const p = panels[idx];
+            if (p._resizeObserver) p._resizeObserver.disconnect();
+            if (p.ws) { p.ws.onclose = null; p.ws.close(); }
+            p.term.dispose();
+            try { await fetch(`/api/windows/${p.windowIdx}?project=${currentProject}`, { method: 'DELETE' }); } catch(e) {}
+            panels.splice(idx, 1);
+            if (activePanel === p) {
+                activePanel = panels[0];
+                projectActive[currentProject] = panels[0];
+            }
+            renderMulti();
+        }
+
+        async function restartPanel(idx) {
+            const p = panels[idx];
+            const pid = p.project || currentProject;
+            const backend = p.backend || 'claude';
+            // Tear down WS + PTY
+            if (p.ws) { p.ws.onclose = null; p.ws.close(); p.ws = null; }
+            p._dead = false;
+            p._reconnectAttempts = 0;
+            p.term.clear();
+            p.term.write('\r\n\x1b[33m[Restarting...]\x1b[0m\r\n');
+            try {
+                // Kill old tmux window
+                await fetch(`/api/windows/${p.windowIdx}?project=${pid}`, { method: 'DELETE' });
+                // Create new tmux window with same backend
+                const resp = await fetch(`/api/windows?project=${pid}&backend=${backend}`, { method: 'POST' });
+                const data = await resp.json();
+                p.windowIdx = data.index;
+                // Reconnect to the new window
+                connectPanel(p);
+                // Update header label
+                const label = backend === 'ralph' ? 'Ralph' : 'Claude';
+                const headerName = p.element?.closest('.multi-panel')?.querySelector('.name');
+                if (headerName) headerName.textContent = `${label} #${p.windowIdx}`;
+            } catch (e) {
+                p.term.write(`\r\n\x1b[31m[Error: ${e.message}]\x1b[0m\r\n`);
+            }
+        }
+
+        // --- Image paste panel ---
+        function togglePastePanel() {
+            const panel = document.getElementById('paste-panel');
+            const isOpen = panel.classList.toggle('open');
+            document.getElementById('btn-paste').classList.toggle('active', isOpen);
+            if (isOpen) {
+                // Close file panel if open
+                document.getElementById('file-panel').classList.remove('open');
+                document.getElementById('btn-files').classList.remove('active');
+                setTimeout(() => document.getElementById('paste-zone').focus(), 50);
+            }
+        }
+
+        document.getElementById('paste-zone').addEventListener('paste', async (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+
+            const items = e.clipboardData && e.clipboardData.items;
+            if (!items) return;
+
+            for (const item of items) {
+                if (!item.type.startsWith('image/')) continue;
+                const blob = item.getAsFile();
+                if (!blob || blob.size < 100) continue;
+
+                const results = document.getElementById('paste-results');
+                const entry = document.createElement('div');
+                entry.className = 'paste-result';
+                entry.innerHTML = '<span style="color:#a80">Loading...</span>';
+                results.prepend(entry);
+
+                try {
+                    const resp = await fetch('/api/upload-image', {
+                        method: 'POST',
+                        headers: { 'Content-Type': item.type },
+                        body: blob
+                    });
+                    const data = await resp.json();
+                    if (data.path) {
+                        const thumbUrl = URL.createObjectURL(blob);
+                        const img = new Image();
+                        img.src = thumbUrl;
+                        img.onload = () => URL.revokeObjectURL(thumbUrl);
+                        img.className = 'thumb';
+                        entry.innerHTML = `
+                            <span class="path" title="Click to copy">${escapeHtml(data.path)}</span>
+                            <button class="copy-btn" onclick="copyPath(this, '${escapeHtml(data.path)}')">Copy</button>
+                        `;
+                        entry.prepend(img);
+                    } else {
+                        entry.innerHTML = '<span style="color:#f44">Upload error</span>';
+                    }
+                } catch (err) {
+                    entry.innerHTML = `<span style="color:#f44">${escapeHtml(err.message)}</span>`;
+                }
+
+                document.getElementById('paste-zone').textContent = 'Ctrl+V';
+                return;
+            }
+        });
+
+        function copyPath(btn, path) {
+            navigator.clipboard.writeText(path).then(() => {
+                const orig = btn.textContent;
+                btn.textContent = 'OK!';
+                btn.style.color = '#8f8';
+                setTimeout(() => { btn.textContent = orig; btn.style.color = ''; }, 1500);
+            });
+        }
+
+        // --- File manager ---
+        function escapeHtml(s) {
+            const d = document.createElement('div');
+            d.textContent = s;
+            return d.innerHTML;
+        }
+        let currentFilePath = '';
+
+        function toggleFilePanel() {
+            const panel = document.getElementById('file-panel');
+            const isOpen = panel.classList.toggle('open');
+            document.getElementById('btn-files').classList.toggle('active', isOpen);
+            if (isOpen) {
+                // Close paste panel if open
+                document.getElementById('paste-panel').classList.remove('open');
+                document.getElementById('btn-paste').classList.remove('active');
+                loadFiles(getSavedFilePath());
+            }
+        }
+
+        function saveFilePath(path) {
+            if (currentProject) {
+                localStorage.setItem('bridge_filePath_' + currentProject, path);
+            }
+        }
+
+        function getSavedFilePath() {
+            if (currentProject) {
+                return localStorage.getItem('bridge_filePath_' + currentProject) || '';
+            }
+            return '';
+        }
+
+        async function loadFiles(path) {
+            currentFilePath = path;
+            saveFilePath(path);
+            const list = document.getElementById('file-list');
+            list.innerHTML = '<div class="file-loading">Loading...</div>';
+            renderBreadcrumb(path);
+
+            try {
+                const resp = await fetch(`/api/files?project=${currentProject}&path=${encodeURIComponent(path)}`);
+                if (!resp.ok) {
+                    // Saved path no longer exists — fall back to root
+                    if (path) {
+                        saveFilePath('');
+                        loadFiles('');
+                        return;
+                    }
+                    const err = await resp.json();
+                    list.innerHTML = `<div class="file-empty">${escapeHtml(err.error || 'Error')}</div>`;
+                    return;
+                }
+                const data = await resp.json();
+                if (data.items.length === 0) {
+                    list.innerHTML = '<div class="file-empty">Folder is empty</div>';
+                    return;
+                }
+                list.innerHTML = '';
+                data.items.forEach(item => {
+                    const div = document.createElement('div');
+                    div.className = 'file-item';
+                    const safeName = escapeHtml(item.name);
+                    if (item.is_dir) {
+                        div.innerHTML = `
+                            <span class="icon">📁</span>
+                            <span class="name">${safeName}</span>
+                            <span class="meta">${formatDate(item.modified)}</span>
+                        `;
+                        div.onclick = () => loadFiles(path ? path + '/' + item.name : item.name);
+                    } else {
+                        div.innerHTML = `
+                            <span class="icon">${fileIcon(item.name)}</span>
+                            <span class="name">${safeName}</span>
+                            <span class="meta">${formatSize(item.size)}</span>
+                            <span class="meta">${formatDate(item.modified)}</span>
+                        `;
+                        div.onclick = () => downloadFile(path ? path + '/' + item.name : item.name);
+                    }
+                    list.appendChild(div);
+                });
+            } catch (e) {
+                list.innerHTML = `<div class="file-empty">Error: ${escapeHtml(e.message)}</div>`;
+            }
+        }
+
+        function renderBreadcrumb(path) {
+            const bc = document.getElementById('file-breadcrumb');
+            bc.innerHTML = '';
+            const root = document.createElement('span');
+            root.textContent = '~';
+            root.onclick = () => loadFiles('');
+            bc.appendChild(root);
+
+            if (path) {
+                const parts = path.split('/');
+                parts.forEach((part, i) => {
+                    const sep = document.createElement('span');
+                    sep.className = 'sep';
+                    sep.textContent = '/';
+                    bc.appendChild(sep);
+                    const seg = document.createElement('span');
+                    seg.textContent = part;
+                    seg.onclick = () => loadFiles(parts.slice(0, i + 1).join('/'));
+                    bc.appendChild(seg);
+                });
+            }
+        }
+
+        function downloadFile(filePath) {
+            const a = document.createElement('a');
+            a.href = `/api/files/download?project=${currentProject}&path=${encodeURIComponent(filePath)}`;
+            a.download = '';
+            document.body.appendChild(a);
+            a.click();
+            a.remove();
+        }
+
+        async function uploadFiles(fileList) {
+            if (!fileList || fileList.length === 0) return;
+            const form = new FormData();
+            for (const f of fileList) form.append('files', f);
+
+            try {
+                const resp = await fetch(`/api/files/upload?project=${currentProject}&path=${encodeURIComponent(currentFilePath)}`, {
+                    method: 'POST',
+                    body: form,
+                });
+                const data = await resp.json();
+                if (data.uploaded) loadFiles(currentFilePath);
+            } catch (e) {
+                console.error('Upload failed:', e);
+            }
+            document.getElementById('file-input').value = '';
+        }
+
+        function formatSize(bytes) {
+            if (bytes < 1024) return bytes + ' B';
+            if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+            if (bytes < 1024 * 1024 * 1024) return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+            return (bytes / (1024 * 1024 * 1024)).toFixed(1) + ' GB';
+        }
+
+        function formatDate(ts) {
+            const d = new Date(ts * 1000);
+            const pad = n => String(n).padStart(2, '0');
+            return `${pad(d.getDate())}.${pad(d.getMonth() + 1)} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+        }
+
+        function fileIcon(name) {
+            const ext = name.split('.').pop().toLowerCase();
+            const icons = {
+                js: '📜', ts: '📜', py: '🐍', html: '🌐', css: '🎨', json: '📋',
+                md: '📝', txt: '📄', sh: '⚙️', yml: '⚙️', yaml: '⚙️', toml: '⚙️',
+                png: '🖼️', jpg: '🖼️', jpeg: '🖼️', gif: '🖼️', svg: '🖼️', webp: '🖼️',
+                zip: '📦', tar: '📦', gz: '📦', '7z': '📦',
+                mp3: '🎵', wav: '🎵', mp4: '🎬', mkv: '🎬',
+                pdf: '📕', doc: '📘', xls: '📗',
+            };
+            return icons[ext] || '📄';
+        }
+
+        // Drag-and-drop on upload zone
+        const uploadZone = document.getElementById('file-upload-zone');
+        uploadZone.addEventListener('dragover', (e) => { e.preventDefault(); uploadZone.classList.add('dragover'); });
+        uploadZone.addEventListener('dragleave', () => uploadZone.classList.remove('dragover'));
+        uploadZone.addEventListener('drop', (e) => {
+            e.preventDefault();
+            uploadZone.classList.remove('dragover');
+            uploadFiles(e.dataTransfer.files);
+        });
+
+        // --- Project switching ---
+        async function loadProjects() {
+            try {
+                const resp = await fetch('/api/projects');
+                const data = await resp.json();
+                allProjects = data.projects;
+                const sel = document.getElementById('project-select');
+                sel.innerHTML = '';
+                data.projects.forEach(p => {
+                    const opt = document.createElement('option');
+                    opt.value = p.id;
+                    opt.textContent = p.name;
+                    sel.appendChild(opt);
+                });
+            } catch (e) {
+                console.error('loadProjects failed:', e);
+            }
+        }
+
+        async function initProject(pid) {
+            projectPanels[pid] = [];
+            getProjectContainer(pid);
+            try {
+                let resp = await fetch(`/api/windows?project=${pid}`);
+                let windows = await resp.json();
+                if (windows.length === 0) {
+                    await fetch(`/api/windows?project=${pid}`, { method: 'POST' });
+                    resp = await fetch(`/api/windows?project=${pid}`);
+                    windows = await resp.json();
+                }
+                windows.forEach(w => {
+                    const term = new Terminal(TERM_OPTS);
+                    const fitAddon = new FitAddon.FitAddon();
+                    term.loadAddon(fitAddon);
+                    term.loadAddon(new WebLinksAddon.WebLinksAddon());
+                    setupTermCopyPaste(term);
+                    projectPanels[pid].push({
+                        project: pid, windowIdx: w.index,
+                        term, fitAddon, ws: null, element: null,
+                        _reconnectAttempts: 0
+                    });
+                });
+            } catch(e) {
+                console.error('initProject failed:', e);
+            }
+            if (projectPanels[pid].length === 0) {
+                const term = new Terminal(TERM_OPTS);
+                const fitAddon = new FitAddon.FitAddon();
+                term.loadAddon(fitAddon);
+                term.loadAddon(new WebLinksAddon.WebLinksAddon());
+                setupTermCopyPaste(term);
+                projectPanels[pid].push({
+                    project: pid, windowIdx: 0,
+                    term, fitAddon, ws: null, element: null,
+                    _reconnectAttempts: 0
+                });
+            }
+            projectActive[pid] = projectPanels[pid][0];
+            // Set aliases so renderMulti works
+            panels = projectPanels[pid];
+            activePanel = projectActive[pid];
+            renderMulti();
+        }
+
+        async function switchProject(pid) {
+            if (pid === currentProject) return;
+
+            // Clean up old on-demand project: close WS, dispose terms, remove panels
+            const oldProj = allProjects.find(p => p.id === currentProject);
+            if (oldProj && !oldProj.always_on && projectPanels[currentProject]) {
+                for (const p of projectPanels[currentProject]) {
+                    if (p._resizeObserver) p._resizeObserver.disconnect();
+                    if (p.ws) { p.ws.onclose = null; p.ws.close(); }
+                    try { p.term.dispose(); } catch(e) {}
+                }
+                delete projectPanels[currentProject];
+                delete projectActive[currentProject];
+                if (projectContainers[currentProject]) {
+                    projectContainers[currentProject].remove();
+                    delete projectContainers[currentProject];
+                }
+            }
+
+            // Hide current project's container (for always_on projects)
+            if (currentProject && projectContainers[currentProject]) {
+                projectContainers[currentProject].style.display = 'none';
+            }
+
+            currentProject = pid;
+            localStorage.setItem('bridge_currentProject', pid);
+            document.getElementById('project-select').value = pid;
+
+            // Apply color theme
+            applyProjectTheme(pid);
+
+            // Refresh file panel if open
+            if (document.getElementById('file-panel').classList.contains('open')) {
+                loadFiles(getSavedFilePath());
+            }
+
+            // Notify server — this kills old on-demand tmux session and creates new one
+            await fetch('/api/projects/current', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ project: pid })
+            });
+
+            // Init project if first visit (or was cleaned up as on-demand)
+            if (!projectPanels[pid]) {
+                await initProject(pid);
+            } else {
+                // Restore aliases
+                panels = projectPanels[pid];
+                activePanel = projectActive[pid];
+            }
+
+            // Show container, then fit+connect with correct dimensions
+            projectContainers[pid].style.display = 'grid';
+            activateCurrentProject();
+            if (activePanel) activePanel.term.focus();
+        }
+
+        // --- Init ---
+        async function init() {
+            await loadProjects();
+
+            // Restore last project from localStorage, or use first available
+            const saved = localStorage.getItem('bridge_currentProject');
+            const startPid = (saved && allProjects.find(p => p.id === saved)) ? saved : (allProjects[0]?.id || 'memeforge');
+
+            document.getElementById('project-select').value = startPid;
+            applyProjectTheme(startPid);
+
+            // Notify server
+            fetch('/api/projects/current', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ project: startPid })
+            });
+
+            // Wait for fonts before initializing terminals (fit needs correct char measurements)
+            await document.fonts.ready;
+
+            // Init only the active project; others load on-demand via switchProject
+            currentProject = startPid;
+            await initProject(startPid);
+            // Show first, then open terminals + fit with real dimensions
+            projectContainers[startPid].style.display = 'grid';
+            activateCurrentProject();
+            if (activePanel) activePanel.term.focus();
+        }
+        init();
+    </script>
+</body>
+</html>

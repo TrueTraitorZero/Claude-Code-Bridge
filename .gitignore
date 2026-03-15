@@ -1,0 +1,53 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+build/
+dist/
+*.egg-info/
+*.egg
+
+# Virtual environments
+.venv/
+venv/
+ENV/
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Type checking
+.mypy_cache/
+.pytype/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Project: environment and secrets
+.env
+.env.local
+.env.*.local
+
+# Project: runtime files
+*.log
+*.pid
+
+# Project: user-specific config
+projects.json
+
+# Project: temporary and generated
+*.tmp
+.agents/
+
+# Project: local overrides
+CLAUDE.md
