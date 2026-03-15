@@ -65,6 +65,7 @@ def ensure_session(session: str, workdir: str = None):
         shell=True,
     )
     _clean_tmux_env(session)
+    _run(f"tmux rename-window -t {session}:0 'claude'")
     time.sleep(0.5)
     claude_cmd = get_backend_cmds()["claude"]
     subprocess.run(
@@ -101,6 +102,7 @@ def create_window(session: str, workdir: str = None, backend: str = "claude"):
     _clean_tmux_env(session)
     result = _run(f"tmux new-window -t {session} -c {workdir} -P -F '#{{window_index}}'")
     window_idx = int(result.strip())
+    _run(f"tmux rename-window -t {session}:{window_idx} '{backend}'")
     cmds = get_backend_cmds()
     cmd = cmds.get(backend, cmds["claude"])
     time.sleep(0.5)

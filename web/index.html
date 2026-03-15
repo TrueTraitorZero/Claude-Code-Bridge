@@ -1029,7 +1029,7 @@
                 const termId = `mterm-${p.project}-${p.windowIdx}-${Date.now()}`;
                 div.innerHTML = `
                     <div class="panel-header">
-                        <span class="name">Claude #${p.windowIdx}</span>
+                        <span class="name">${(p.backend === 'ralph' ? 'Ralph' : 'Claude')} #${p.windowIdx}</span>
                         <div class="hdr-buttons">
                             <button class="restart-btn" title="Restart">🔄</button>
                             ${panels.length > 1 ? `<button class="close-btn" title="Close">✕</button>` : ''}
@@ -1553,8 +1553,9 @@
                     term.loadAddon(fitAddon);
                     term.loadAddon(new WebLinksAddon.WebLinksAddon());
                     setupTermCopyPaste(term);
+                    const backend = (w.name === 'ralph') ? 'ralph' : 'claude';
                     projectPanels[pid].push({
-                        project: pid, windowIdx: w.index,
+                        project: pid, windowIdx: w.index, backend,
                         term, fitAddon, ws: null, element: null,
                         _reconnectAttempts: 0
                     });
