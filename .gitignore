@@ -44,6 +44,7 @@ Thumbs.db
 
 # Project: user-specific config
 projects.json
+.bot_sessions.json
 
 # Project: temporary and generated
 *.tmp

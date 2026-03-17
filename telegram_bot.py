@@ -29,6 +29,28 @@ _switch_project_fn = None
 
 _current_proc = None  # Track running claude subprocess for /stop
 _bot_sessions = {}    # project_id -> session UUID for isolated bot conversations
+_SESSIONS_FILE = os.path.join(os.path.dirname(__file__), ".bot_sessions.json")
+
+
+def _load_bot_sessions():
+    global _bot_sessions
+    if os.path.exists(_SESSIONS_FILE):
+        try:
+            with open(_SESSIONS_FILE) as f:
+                _bot_sessions = json.load(f)
+        except Exception:
+            _bot_sessions = {}
+
+
+def _save_bot_sessions():
+    try:
+        with open(_SESSIONS_FILE, "w") as f:
+            json.dump(_bot_sessions, f)
+    except Exception:
+        pass
+
+
+_load_bot_sessions()
 
 
 def setup_bot(token: str, allowed_users: str, proxy: str = None,
@@ -68,6 +90,7 @@ def setup_bot(token: str, allowed_users: str, proxy: str = None,
         # Reset bot session so next message starts fresh context
         project_id = _get_current_project() if _get_current_project else "default"
         _bot_sessions.pop(project_id, None)
+        _save_bot_sessions()
         await message.reply("\U0001f504 Claude Code restarted")
 
     @dp.message(F.text.startswith("/project"))
@@ -253,6 +276,7 @@ async def process_input(bot: Bot, message: types.Message, text: str):
                 result_sid = event.get("session_id")
                 if result_sid:
                     _bot_sessions[project_id] = result_sid
+                    _save_bot_sessions()
                 break
 
             # Build display: show tool progress while working, text when available
