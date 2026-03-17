@@ -28,6 +28,7 @@ _get_current_project = None
 _switch_project_fn = None
 
 _current_proc = None  # Track running claude subprocess for /stop
+_bot_sessions = {}    # project_id -> session UUID for isolated bot conversations
 
 
 def setup_bot(token: str, allowed_users: str, proxy: str = None,
@@ -64,6 +65,9 @@ def setup_bot(token: str, allowed_users: str, proxy: str = None,
             return
         tmux_manager.kill_session(_get_session())
         tmux_manager.ensure_session(_get_session(), _get_workdir())
+        # Reset bot session so next message starts fresh context
+        project_id = _get_current_project() if _get_current_project else "default"
+        _bot_sessions.pop(project_id, None)
         await message.reply("\U0001f504 Claude Code restarted")
 
     @dp.message(F.text.startswith("/project"))
@@ -188,7 +192,13 @@ async def process_input(bot: Bot, message: types.Message, text: str):
             if "CLAUDE" in key.upper():
                 del env[key]
 
-        cmd = [config.CLAUDE_BIN, "-p", "--verbose", "--continue", "--output-format", "stream-json"]
+        # Use a dedicated session per project so bot doesn't share context with web terminals
+        project_id = _get_current_project() if _get_current_project else "default"
+        session_id = _bot_sessions.get(project_id)
+
+        cmd = [config.CLAUDE_BIN, "-p", "--verbose", "--output-format", "stream-json"]
+        if session_id:
+            cmd.extend(["--resume", session_id])
         if config.CLAUDE_SKIP_PERMISSIONS:
             cmd.append("--dangerously-skip-permissions")
         cmd.append(text)
@@ -239,6 +249,10 @@ async def process_input(bot: Bot, message: types.Message, text: str):
                         tool_log.append(name)
                         logger.info(f"  tool: {name}")
             elif etype == "result":
+                # Save session ID for future --resume
+                result_sid = event.get("session_id")
+                if result_sid:
+                    _bot_sessions[project_id] = result_sid
                 break
 
             # Build display: show tool progress while working, text when available
